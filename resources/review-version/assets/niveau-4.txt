@@ -1,0 +1,200 @@
+L'interpréteur est composé de 19 modules afin de factoriser au maximum le code et de l'organiser proprement par parties interdépendantes.
+
+Le projet est donc organisé de la manière suivante :
+
+- un dossier "modules" :
+
+    - les modules demandés dans le sujet (memoire.c, lecture.c, pile.c, dico.c)
+
+    - un dossier "utils" contenant plusieurs modules "utilitaires" (créés spécialements pour le projet).
+        Ces utilitaires ne sont là qu'en soutient pour simplifier certaines tâches, notamment à partir du niveau 4.
+
+    - un dossier "interpréter" qui contient tous les modules nécessaires à l'interprétation d'un script YoctoForth,
+        de la lecture des arguments passés au programme à l'évaluation de chaque mot de ce script en fonction du niveau d'interprétation demandé.
+
+        - un fichier "cli.c" qui, comme son nom l'indique, est le fichier qui s'occupe de la "Command Line Interface",
+            soit de récupérer le chemin d'accès vers le script YoctoForth à évaluer.
+        
+        - un fichier "locale.c" qui contient les mots du langage YoctoForth dans un tableau.
+            Le header associé "locale.h" contient aussi toutes les constantes nécessaires lors de l'interprétation,
+            comme les codes d'erreurs, le nombre de mots disponibles en fonction du niveau d'interprétation, etc.
+
+        - un dossier "evaluation" :
+
+            - un fichier "evaluate.c" permettant d'évaluer un script YoctoForth en fonction d'un contexte d'évaluation donné et du niveau d'interprétation souhaité
+
+            - un fichier "operations.c" contenant l'ensemble des fonctions associé à chaque mot-clé du langage
+
+            - les quatre fichiers "level1.c",  "level2.c" "level3.c" et "level4.c" contenant respectivement les fonctions d'évaluation pour
+                le niveau d'interprétation 1 (basic), 2 (medium), 3 (normal) et 4 (advanced)
+
+
+- un dossier "includes" contenant les headers de chacun des modules
+
+- le fichier principale "yforth.c"
+
+La documentation de chaque fonction est donnée dans le header associé à chaque module.
+
+Les utilitaires utilisés dans le projet respectent tous les contraintes d'allocations mémoires.
+En particulier, un module "tempalloc.c" est utilisé pour faire des allocations mémoire nécessaires pendant l'intégralité du temps d'exécution du programme.
+Les allocations mémoires réalisées avec ce module sont alors libérées juste avant la fin de l'exécution du programme.
+Dans ce module, il existe aussi une fonction de libération permettant de libérer proprement une allocation temporaire effectuée avec ce module.
+
+//////////////////////
+
+I. Le module de lecture (`lecture.c`) :
+
+    La fonction LectureProg est la fonction la plus importante de ce module, car elle permet de lire et stocker correctement un script en Forth dans une structure dédiée.
+    Pour ce faire, on utilise la fonction fscanf afin de lire chaque mot un par un grâce à l'identificateur de format `%s`.
+
+    J'ai fait le choix de décomposer cette fonction en deux :
+        - la fonction `LectureProg` qui alloue une nouvelle structure `struct sProgramme` et ajoute les mots du script en Forht dans cette structure à l'aide de la fonction `ReadAppendProg`
+        - la fonction `ReadAppendProg` qui lit un script Forth et ajoute dans une structure `struct sProgramme` existante les mots de ce script.
+
+    Faire appel à une deuxième fonction `ReadAppendProg` me permet par la suite de prendre en compte les inclusions de scripts à l'aide du mot `INCLUDE`.
+
+    Dans ce module, j'ai choisi de prendre en compte tous les types de commentaires qu'on peut retrouver en Forth :
+        - les commentaires simples :
+            ( ceci est un commentaire)
+        - les commentaires sur une ligne complète :
+            \ ceci fait partie du commentaire
+            ceci ne fait plus partie du commentaire
+        - les commentaires sur plusieurs lignes :
+            (* début, blabla
+            encore du texte
+            fin.
+            point final.*)
+
+    Plusieurs autres cas particuliers sont aussi pris en compte :
+        - le stockage du texte que doit afficher le mot `."`
+        - le stockage du nom de fichier du script inclu par le mot `INCLUDE`.
+        - la vérification syntaxique dès la lecture
+
+    /!\ Le nom du fichier inclus n'est pas stocké dans le programme (comme demandé), du moins en tant que mot.
+    En effet, j'ai fait le choix de stocker le nom du fichier dans le même espace mémoire dans le tableau des mots du programme que le mot `INCLUDE`.
+    Pour ce faire, j'ai simplement séparé le mot `INCLUDE` et le nom du fichier par le caractère `\0` pour que `INCLUDE` reste considéré comme un seul mot
+    appartenant aux mots disponibles du langage.
+
+
+II.
+
+    0. Le concept d'interprétation utilisé :
+
+        On peut décomposer l'interprétation d'un script Forth (ou de n'importe quel autre programme peu importe le langage) en 3 parties :
+            - un contexte de départ, appelé contexte d'évaluation
+            - l'évaluation du script / programme, soit l'exécution de ses opérations sur le contexte d'évaluation
+            - le résultat de l'évaluation, soit l'état final du contexte d'évaluation. On peut ajouter au contexte le fait qu'une erreur ait eu lieu ou non durant l'évaluation.
+
+        Ici, notre contexte d'évaluation est constitué de :
+            - la pile sur laquelle les opérations des mots du langage Forth agissent
+            - du dictionnaire des mots définis au fur et à mesure de l'interprétation
+            - du statut de l'évaluation à chaque opération.
+
+        C'est en fonction de cette manière de concevoir l'interprétation d'un script / programme qu'a été conçu cet interpréteur de script en Forth.
+
+
+    1. Le niveau 1 (`level1.c`) :
+
+        Le coeur de l'interpréteur se trouve dans les modules "operations.c" et "level1.c", "level2.c", "level3.c" et "level4.c" présent dans le dossier "modules/interpréter/evaluation/".
+
+        Dans le sujet, les mots à utiliser à chaque niveau sont donnés dans un ordre précis.
+        Le tableau des mots de "locale.c" contient alors les mots triés et indexés dans cet ordre.
+
+        Ainsi, le nombre de mots disponibles à un niveau donné correspond à ce niveau.
+
+        Pour le niveau 1, les 19 premiers mots (sur 37) du langage sont disponibles.
+
+        Une fonction d'opération est associée à chacun de ces mots dans le module "operations.c", qui effectue l'opération du mot en question.
+
+        La fonction d'évaluation du niveau 1 est une boucle qui parcourt l'ensemble des mots du script à évaluer, et qui exécute la fonction d'opération correspondant à chaque mot rencontré.
+
+        On utilise d'ailleurs la fonction "strEquals" du module "strutil.c" pour vérifier que le mot rencontré est égal ou non à chacun des mots disponibles.
+
+        La fonction "str2int" (du même module) est utilisée pour convertir une chaîne de caractères représentant un entier relatif en int, et d'indiquer si le mot utilisé représente partiellement
+        ou complètement un entier relatif (exemple: str2int("123", &complete) -> 123 et complete == true, mais str2int("3.14", &complete) -> 3 et complete == false).
+
+        On fait aussi appel à la fonction "strArrayIncludes" (provenant toujours du module "strutil.c"), qui vérifie qu'une chaine de caractères est comprise dans un tableau de chaine de caractères,
+        pour vérifier si chaque mot rencontré appartient aux mots disponibles du langage.
+
+        Ainsi, dès qu'un mot-clé est rencontré, on vérifie si le mot est un nombre, sinon on vérifie si c'est un mot disponible du langage,
+        et enfin sinon on retourne l'erreur correspondante (ici, l'erreur est représentée par la constante EVALUATION_ERROR_NOT_SUPPORTED_WORD).
+
+        La boucle de la fonction d'évaluation s'arrête lorsqu'une erreur (un statut d'évaluation différent de EVALUATION_SUCCESS) est rencontrée ou lorsqu'on atteint la fin du script.
+
+
+    2. Le niveau 2 (`level2.c`) :
+
+        Dans ce niveau, le principal ajout est la prise en charge des mots de contrôle logique `IF`, `ELSE` et `ENDIF` et des mots de contrôle de boucle `BEGIN`, `WHILE` et `REPEAT`.
+
+        Pour prendre en charge ces mots de contrôle, il est nécessaire de faire intervenir le concept de "pile de saut" (ou encore appelée "pile de retour" à partir du niveau 3).
+        Cette "pile de saut" permet d'aller d'un mot du programme à un autre durant l'interprétation.
+        
+        Ainsi on peut passer plusieurs mots du programme lorsqu'il n'est pas nécessaire de les interpréter (exemple : pour ignorer un `IF` et directement interpréter son `ELSE`),
+        ou bien même revenir à un mot précédemment interpréter (exemple : pour revenir au `BEGIN` d'une boucle).
+
+
+    3. Le niveau 3 (`level3.c`) :
+
+        La particularité de ce niveau est la définition de nouveaux mots durant l'interprétation.
+        Chaque mot est rajouté à un dictionnaire, à savoir le dictionnaire du contexte d'évaluation.
+
+        De même qu'au niveau 2, ici, on fait intervenir la "pile de saut" pour aller d'un mot du programme qui serait défini dans le dictionnaire à sa définition
+        afin d'interpréter les mots qui la composent.
+
+        Dans ce niveau apparaît aussi la prise en charge de l'imbrication de mots de contrôle logique et de mots de contrôle de boucle.
+        Les opérations associées à ces mots de contrôles ne changent qu'en un point : la recherche des mots de contrôle associés.
+        
+        Par exemple, dans le cas d'un `IF` imbriqué dans un `IF`, il faut être capable de trouver le `ENDIF` et/ou le `ELSE` associé(s) à chaque `IF` :
+            01.    1 2 <
+            02.    if
+            03.        4 2 mod
+            04.        if
+            05.            ." A"
+            06.        else
+            07.            ." B"
+            08.        endif
+            09.    else
+            10.        ." C"
+            11.    endif
+
+        Dans cet exemple de script, le premier `IF` de la ligne 2 a comme mots associés le `ELSE` à la ligne 9 et le `ENDIF` à la ligne 11.
+        Bien que facile à identifier visuellement avec cette syntaxe, l'interpréteur lui lit mot à mot et doit donc être capable d'associer le `ELSE` de la ligne 9 au `IF` de la ligne 2
+        et non pas associer le `ELSE` de la ligne 6 avec ce même `IF`.
+
+        Pour répondre à cette contrainte, j'ai choisi de faire appel au même concept qu'un algorithme de vérification de "parenthésage".
+        La seule différence entre cette situation et un tel algorithme est qu'ici, on cherche la "parenthèse fermante" au lieu de vérifier si le texte est bien "parenthésé".
+        Ainsi, on considère par exemple le mot `IF` comme une "parenthèse ouvrante" (un mot d'ouverture) et le mot `ELSE` comme une "parenthèse fermante" (un mot de fermeture).
+
+        Alors, on applique l'algorithme /
+            - à chaque mot d'ouverture rencontré, on incrémente un compteur (+1)
+            - à chaque mot de fermeture rencontré, on décrémente un compteur (-1)
+            - on sait qu'un contenu est "bien parenthèsé" lorsque le compteur est égal à 0.
+
+        Dans notre cas, le compteur commence toujours à 1 et finit à 0, car l'algorithme est appliqué au moment ou un `IF` et rencontré.
+
+        On applique alors ce même principe à chaque couple de mot de contrôle qui le nécessite :
+            - `IF` et `ELSE` (optionel)
+            - `IF` et `ENDIF` (obligatoire)
+            - `WHILE` et `BEGIN`
+            - `WHILE` et `REPEAT`
+
+        Le couple `WHILE` et `BEGIN` est un cas particulier ou il faut appliquer l'algorithme en "reculant" dans les mots du programme.
+        Il n'est pas nécessaire de tester toutes les combinaisons ordonnées possibles entre les mots de contrôle de ces deux familles (logique et boucle), car seul le `IF`
+        et le `WHILE` nécessite une opération d'interprétation. Le reste de ces mots sont neutres et sont utilisés uniquement comme repère.
+        Ils sont tout de même utiliser dans la boucle principale de l'interpréteur pour identifier les éventuelles erreurs de syntaxes (fonctionnalité requise jusqu'au niveau 4).
+    
+
+    4. Le niveau 4 (`level4.c`) :
+
+        Ce niveau est le dernier du projet. Il introduit la vérification syntaxique au moment de la lecture du programme ainsi que l'inclusion de scripts.
+
+        Pour l'inclusion de script, il était nécessaire de segmenter au préalable la fonction LectureProg du module de lecture `lecture.c`
+        afin d'inclure dans un même programme les mots d'un autre script.
+
+        A partir de ce niveau, la fonction générale d'évaluation devient récursive lorsqu'une opération d'inclusion est effectuée.
+        Pour moi, inclure un script revenait à interpréter ce dernier à partir du contexte d'évaluation en cours d'utilisation et à se reservir de ce contexte
+        une fois l'interprétation du script inclus effectuée.
+        Et c'est pour ça que la fonction générale d'évaluation est utilisée de manière récursive au moment d'inclure un script.
+
+        D'autres complications se sont présentées durant l'implémentation des inclusions de scripts, notamment concernant les chemins d'accès.
+        J'ai donc choisi de créer un module utilitaire `pathutil.c` qui permet de faire entre autres de la concaténation de chemins d'accès, de la résolution de chemins d'accès relatifs.
